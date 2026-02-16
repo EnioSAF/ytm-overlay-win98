@@ -26,6 +26,7 @@ const el = {
   thumb: document.getElementById("nowThumb"),
   queueCurrent: document.getElementById("queueCurrent"),
   queue: document.getElementById("queueList"),
+  queueScroll: document.getElementById("queueScroll"),
   toastStack: document.getElementById("toastStack"),
   volRow: document.getElementById("volRow"),
   volFill: document.getElementById("volFill"),
@@ -82,11 +83,86 @@ function setAddedToast(user, color) {
   el.nowAddedToast.appendChild(name);
 }
 
-function setStatus(user, likes, views, info) {
-  if (el.statusUser) el.statusUser.textContent = user || "";
-  if (el.statusLikes) el.statusLikes.textContent = likes || "";
-  if (el.statusViews) el.statusViews.textContent = views || "";
-  if (el.statusInfo) el.statusInfo.textContent = info || "";
+function hackerText(seed) {
+  const base = String(seed || "").replace(/\s+/g, "");
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let out = "";
+  for (let i = 0; i < 6; i++) {
+    const idx = (base.charCodeAt(i % base.length) + i * 7) % chars.length;
+    out += chars[idx];
+  }
+  return out || "SYSOK";
+}
+
+function pickStatusFill(now, qCount, volTxt) {
+  const infoBase = `INFO:${now?.isPaused ? "PAUSE" : "PLAY"} | Q:${qCount} | VOL:${volTxt}`;
+  const sys = `SYS:${hackerText(now?.title || now?.artist || "SYS")}`;
+  const mem = `MEM:${Math.floor(32 + (Math.sin(Date.now() / 1500) + 1) * 16)}%`;
+  const net = `NET:${Math.floor(40 + (Math.cos(Date.now() / 1200) + 1) * 20)}%`;
+  const bit = `BIT:${now?.duration ? (now.duration > 600 ? "96" : "128") : "128"}kbps`;
+  return [infoBase, sys, mem, net, bit];
+}
+let lastInfoPanelIndex = 0;
+
+function setStatusPanels(items) {
+  const panels = [el.statusUser, el.statusLikes, el.statusViews, el.statusInfo];
+  for (let i = 0; i < panels.length; i++) {
+    const panel = panels[i];
+    if (!panel) continue;
+    panel.innerHTML = "";
+    const item = items[i];
+    if (!item) {
+      panel.textContent = "";
+      continue;
+    }
+    if (item.type === "badge") {
+      const label = document.createElement("span");
+      label.className = "status-label";
+      label.textContent = "Added by:";
+      const badge = document.createElement("span");
+      badge.className = "status-badge";
+      badge.textContent = `@${String(item.user || "").replace(/^@/, "")}`;
+      badge.style.color = item.color || hashColor(item.user || "");
+      panel.appendChild(label);
+      panel.appendChild(badge);
+    } else {
+      panel.textContent = item.text || "";
+    }
+  }
+}
+
+function buildStatusItems(now, qCount, volTxt) {
+  const items = [];
+  if (now?.addedBy) {
+    items.push({ type: "badge", user: now.addedBy, color: now.addedByColor || "" });
+  }
+
+  const likes = now?.likes ? `LIKES:${now.likes}` : "";
+  const views = now?.views ? `VIEWS:${now.views}` : "";
+  const likeView = likes && views ? `${likes} | ${views}` : (likes || views);
+  if (likeView) items.push({ type: "text", text: likeView });
+
+  const infoBits = [];
+  infoBits.push(`INFO:${now?.isPaused ? "PAUSE" : "PLAY"}`);
+  infoBits.push(`Q:${qCount}`);
+  infoBits.push(`VOL:${volTxt}`);
+  if (now?.shuffle != null) infoBits.push(`SHUF:${now.shuffle ? "ON" : "OFF"}`);
+  if (now?.repeat) infoBits.push(`REP:${now.repeat}`);
+  if (now?.likeState) infoBits.push(`LIKE:${now.likeState}`);
+  const infoTxt = infoBits.join(" | ");
+  items.push({ type: "text", text: infoTxt, _isInfo: true });
+
+  const fillers = pickStatusFill(now, qCount, volTxt).slice(1);
+  while (items.length < 4) {
+    const t = fillers.shift() || `SYS:${hackerText(now?.title || now?.artist || "SYS")}`;
+    items.push({ type: "text", text: t });
+  }
+
+  const infoIndex = items.findIndex(i => i?._isInfo);
+  lastInfoPanelIndex = infoIndex >= 0 ? infoIndex : 2;
+  lastInfoBase = infoTxt.split(" | VOL")[0];
+
+  return items.slice(0, 4);
 }
 
 function clampPct(v) {
@@ -101,16 +177,42 @@ function pulse(btn) {
   btn._pulseTimer = setTimeout(() => btn.classList.remove("is-pressed"), 220);
 }
 
-function setVolume(vol) {
-  if (vol == null || !Number.isFinite(vol)) {
-    if (el.volRow) el.volRow.style.display = "none";
-    return;
-  }
-  const pct = clampPct(vol);
+let lastRealVol = null;
+let lastInfoBase = "";
+const VOL_GAMMA = 1.0; // keep linear unless we need compensation
+
+function applyVolumeCurve(pct) {
+  const p = clampPct(pct) / 100;
+  if (!Number.isFinite(p)) return 0;
+  if (VOL_GAMMA === 1) return clampPct(p * 100);
+  return clampPct(Math.pow(p, VOL_GAMMA) * 100);
+}
+
+function renderVolumePct(pct) {
   if (el.volRow) el.volRow.style.display = "";
   if (el.volFill) el.volFill.style.width = `${pct}%`;
   if (el.volKnob) el.volKnob.style.left = `${pct}%`;
   if (el.volPct) el.volPct.textContent = `${Math.round(pct)}%`;
+}
+
+function fakeVolume() {
+  const t = Date.now() / 1000;
+  return 35 + 15 * Math.sin(t * 0.6);
+}
+
+function getDisplayVol(vol) {
+  if (Number.isFinite(vol)) return applyVolumeCurve(vol);
+  if (lastRealVol != null) return applyVolumeCurve(lastRealVol);
+  return applyVolumeCurve(fakeVolume());
+}
+
+function setVolume(vol) {
+  if (vol == null || !Number.isFinite(vol)) {
+    renderVolumePct(getDisplayVol(vol));
+    return;
+  }
+  lastRealVol = clampPct(vol);
+  renderVolumePct(applyVolumeCurve(lastRealVol));
 }
 
 function pickThumb(thumb, videoId) {
@@ -187,11 +289,74 @@ function buildQueueItem(q, isCurrent = false) {
   return li;
 }
 
+function buildSection(label) {
+  const div = document.createElement("div");
+  div.className = "queue-section";
+  div.textContent = label;
+  return div;
+}
+
 let lastVideoId = "";
 let lastPaused = null;
 let liveNow = null;
 let rafId = 0;
 let lastFrameTs = 0;
+let scrollDir = -1;
+let scrollPauseUntil = 0;
+let lastAutoTs = 0;
+let lastQueueKey = "";
+let lastCurrentId = "";
+let autoScrollPos = null;
+let lastMaxScroll = 0;
+
+function updateAutoScroll() {
+  const sc = el.queueScroll;
+  if (!sc) return;
+  const maxScroll = sc.scrollHeight - sc.clientHeight;
+  if (maxScroll <= 1) {
+    updateAutoScroll._init = false;
+    autoScrollPos = null;
+    lastMaxScroll = maxScroll;
+    return;
+  }
+  const now = performance.now();
+
+  if (!updateAutoScroll._init || autoScrollPos == null) {
+    autoScrollPos = maxScroll; // start at bottom
+    scrollDir = -1; // move up first
+    updateAutoScroll._init = true;
+    lastAutoTs = now;
+    scrollPauseUntil = now + 600;
+    lastMaxScroll = maxScroll;
+    sc.scrollTop = autoScrollPos;
+    return;
+  }
+
+  if (Math.abs(maxScroll - lastMaxScroll) > 1) {
+    autoScrollPos = Math.min(autoScrollPos, maxScroll);
+    lastMaxScroll = maxScroll;
+  }
+
+  if (now < scrollPauseUntil) return;
+
+  const dt = Math.max(0, (now - lastAutoTs) / 1000);
+  lastAutoTs = now;
+  const speed = 8;
+  let next = autoScrollPos + speed * dt * scrollDir;
+
+  if (next <= 0) {
+    next = 0;
+    scrollDir = 1;
+    scrollPauseUntil = now + 700;
+  } else if (next >= maxScroll) {
+    next = maxScroll;
+    scrollDir = -1;
+    scrollPauseUntil = now + 700;
+  }
+
+  autoScrollPos = next;
+  sc.scrollTop = autoScrollPos;
+}
 
 function updateProgress() {
   if (!liveNow) {
@@ -229,6 +394,16 @@ function tick(ts) {
     }
     updateProgress();
   }
+  if (liveNow && lastRealVol == null) {
+    renderVolumePct(clampPct(fakeVolume()));
+  }
+  if (lastInfoBase && lastRealVol == null) {
+    const v = Math.round(getDisplayVol(NaN));
+    const panels = [el.statusUser, el.statusLikes, el.statusViews, el.statusInfo];
+    const panel = panels[lastInfoPanelIndex];
+    if (panel) panel.textContent = `${lastInfoBase} | VOL:${v}%`;
+  }
+  updateAutoScroll();
 
   rafId = requestAnimationFrame(tick);
 }
@@ -256,7 +431,14 @@ function render(data) {
     el.thumb.classList.add("is-empty");
     if (el.btnPlay) el.btnPlay.classList.remove("is-pressed");
     setVolume(null);
-    setStatus("USER: --", "LIKES: --", "VIEWS: --", "INFO: READY");
+    lastInfoBase = "INFO: READY | Q:0";
+    lastInfoPanelIndex = 2;
+    setStatusPanels([
+      { type: "text", text: "USER: --" },
+      { type: "text", text: "LIKES: -- | VIEWS: --" },
+      { type: "text", text: "INFO: READY | Q:0 | VOL:--" },
+      { type: "text", text: `SYS:${hackerText("READY")}` }
+    ]);
     lastVideoId = "";
     lastPaused = null;
   } else {
@@ -269,17 +451,15 @@ function render(data) {
     setKV(el.nowArtist, "Artiste", artist);
     setKV(el.nowAlbum, "Album", album);
     setKV(el.nowDuration, "Durée", now.duration ? fmtTime(now.duration) : "");
-    setKV(el.nowStatus, "Statut", now.isPaused ? "Pause" : "Lecture");
+    setLine(el.nowStatus, "");
     setAddedToast(now.addedBy || "", now.addedByColor || "");
 
     const qCount = Array.isArray(data.queue) ? data.queue.length : 0;
     const vol = Number(data.volume ?? now.volume);
-    const volTxt = Number.isFinite(vol) ? `${Math.round(vol)}%` : "--";
-    const userTxt = now.addedBy ? `USER: @${now.addedBy}` : (artist ? `ARTIST: ${artist}` : `TRACK: ${title}`);
-    const likesTxt = now.likes ? `LIKES: ${now.likes}` : (album ? `ALBUM: ${album}` : "LIKES: --");
-    const viewsTxt = now.views ? `VIEWS: ${now.views}` : (now.duration ? `LEN: ${fmtTime(now.duration)}` : "VIEWS: --");
-    const infoTxt = `INFO: ${now.isPaused ? "PAUSE" : "PLAY"} | Q:${qCount} | VOL:${volTxt}`;
-    setStatus(userTxt, likesTxt, viewsTxt, infoTxt);
+    const volPct = getDisplayVol(vol);
+    const volTxt = `${Math.round(volPct)}%`;
+    const items = buildStatusItems(now, qCount, volTxt);
+    setStatusPanels(items);
 
     liveNow = {
       elapsed: Number(now.elapsed) || 0,
@@ -319,16 +499,37 @@ function render(data) {
   } : null;
 
   if (el.queueCurrent) {
-    el.queueCurrent.innerHTML = "";
-    if (current && (current.title || current.videoId)) {
+    if (!current || !(current.title || current.videoId)) {
+      el.queueCurrent.innerHTML = "";
+      lastCurrentId = "";
+    } else if (current.videoId !== lastCurrentId) {
+      el.queueCurrent.innerHTML = "";
       el.queueCurrent.appendChild(buildQueueItem(current, true));
+      lastCurrentId = current.videoId;
     }
   }
 
-  const list = (data.queue || []).filter(q => !current || q.videoId !== current.videoId);
-  el.queue.innerHTML = "";
-  for (const q of list) {
-    el.queue.appendChild(buildQueueItem(q, false));
+  const all = Array.isArray(data.queue) ? data.queue : [];
+  const curId = current?.videoId || "";
+  const idx = curId ? all.findIndex(q => q.videoId === curId) : -1;
+  const past = idx > 0 ? all.slice(0, idx) : [];
+  const upcoming = idx >= 0 ? all.slice(idx + 1) : all.slice();
+  const filteredUpcoming = upcoming.filter(q => !curId || q.videoId !== curId);
+  const filteredPast = past.filter(q => !curId || q.videoId !== curId);
+
+  const queueKey = `${curId}|${all.map(q => q.videoId || q.title || "").join("|")}`;
+  if (queueKey !== lastQueueKey) {
+    lastQueueKey = queueKey;
+    el.queue.innerHTML = "";
+    if (filteredPast.length) {
+      el.queue.appendChild(buildSection("Passées"));
+      for (const q of filteredPast) el.queue.appendChild(buildQueueItem(q, false));
+    }
+    if (filteredUpcoming.length) {
+      el.queue.appendChild(buildSection("À suivre"));
+      for (const q of filteredUpcoming) el.queue.appendChild(buildQueueItem(q, false));
+    }
+    // keep auto scroll state; height changes are handled in updateAutoScroll
   }
 
   el.toastStack.innerHTML = "";

@@ -322,6 +322,15 @@ html, body {
   font-size: 12px;
 }
 
+.queue-section {
+  font-size: 11px;
+  font-weight: bold;
+  color: #000080;
+  border: 1px inset #fff;
+  background: #d6d6d6;
+  padding: 2px 4px;
+}
+
 .queue-item {
   display: grid;
   grid-template-columns: 38px 1fr;
@@ -394,7 +403,8 @@ html, body {
 }
 
 .status-panel {
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  min-width: 0;
   border: 1px inset #fff;
   background: #d6d6d6;
   padding: 2px 4px;
@@ -404,9 +414,27 @@ html, body {
   text-overflow: ellipsis;
 }
 
+.status-label {
+  margin-right: 4px;
+  color: #000080;
+  font-weight: bold;
+}
+
 .status-panel.small {
-  flex: 0 0 96px;
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: center;
+}
+
+.status-badge {
+  display: inline-block;
+  background: #e0e0e0;
+  border: 1px solid #808080;
+  border-radius: 6px;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-weight: bold;
+  box-shadow: inset 1px 1px 0 #fff, inset -1px -1px 0 #a0a0a0;
 }
 
 .queue-label {

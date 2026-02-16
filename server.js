@@ -102,9 +102,16 @@ const state = {
   queue: [],
   addedBy: new Map(), // videoId -> { user, ts, title?, artist? }
   toasts: [],
-  volume: null
+  volume: null,
+  shuffle: null,
+  repeat: "",
+  likeState: ""
 };
 let volumeSupported = true;
+let shuffleSupported = true;
+let repeatSupported = true;
+let likeSupported = true;
+let lastVolLogTs = 0;
 
 function pushToast(payload) {
   const item = (typeof payload === "string") ? { text: payload } : { ...payload };
@@ -234,6 +241,28 @@ function safeAlbum(obj) {
   );
 }
 function safeVolume(obj) {
+  function scale(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return Math.max(0, Math.min(100, Math.round(n * 4)));
+  }
+  if (obj == null) return null;
+  if (obj && typeof obj === "object" && "state" in obj) {
+    const s = Number(obj.state);
+    if (Number.isFinite(s)) {
+      return scale(s);
+    }
+  }
+  if (typeof obj === "number" && Number.isFinite(obj)) {
+    return scale(obj);
+  }
+  if (typeof obj === "string") {
+    const n = Number(obj);
+    if (Number.isFinite(n)) {
+      return scale(n);
+    }
+  }
+
   const raw =
     obj?.volume
     ?? obj?.volumePercent
@@ -243,11 +272,25 @@ function safeVolume(obj) {
     ?? obj?.value
     ?? obj?.volumeLevel
     ?? obj?.volume_level;
-  if (raw == null) return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return null;
-  if (n <= 1) return Math.round(n * 100);
-  return Math.round(Math.max(0, Math.min(100, n)));
+
+  if (raw != null && typeof raw === "object") {
+    const nested = safeVolume(raw);
+    if (nested != null) return nested;
+  }
+
+  if (raw != null) {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return scale(n);
+  }
+
+  const nested =
+    obj?.data
+    ?? obj?.state
+    ?? obj?.player
+    ?? obj?.result;
+  if (nested != null) return safeVolume(nested);
+
+  return null;
 }
 
 function safeProgress(obj) {
@@ -266,6 +309,36 @@ function safeProgress(obj) {
   if (n >= 0 && n <= 1) return n;
   if (n > 1 && n <= 100) return n / 100;
   return null;
+}
+
+function parseShuffle(obj) {
+  if (obj == null) return null;
+  if (typeof obj === "boolean") return obj;
+  const v = obj?.shuffle ?? obj?.enabled ?? obj?.state ?? obj?.value ?? obj?.isOn;
+  if (typeof v === "boolean") return v;
+  const s = normStr(v).toLowerCase();
+  if (!s) return null;
+  if (s.includes("true") || s.includes("on") || s.includes("shuffle")) return true;
+  if (s.includes("false") || s.includes("off")) return false;
+  return null;
+}
+
+function parseRepeat(obj) {
+  const s = normStr(obj?.mode ?? obj?.repeatMode ?? obj?.repeat_mode ?? obj?.state ?? obj?.value);
+  if (!s) return "";
+  const up = s.toUpperCase();
+  if (up.includes("ONE")) return "ONE";
+  if (up.includes("ALL")) return "ALL";
+  if (up.includes("OFF")) return "OFF";
+  return up;
+}
+
+function parseLikeState(obj) {
+  if (obj == null) return "";
+  if (typeof obj === "boolean") return obj ? "LIKE" : "NONE";
+  const s = normStr(obj?.likeState ?? obj?.state ?? obj?.status ?? obj?.value);
+  if (!s) return "";
+  return s.toUpperCase();
 }
 function pickThumb(th) {
   if (!th) return "";
@@ -391,9 +464,15 @@ async function pollPearOnce() {
   let song = null;
   let queueRaw = null;
   let volumeRaw = null;
+  let shuffleRaw = null;
+  let repeatRaw = null;
+  let likeRaw = null;
   let songOk = false;
   let queueOk = false;
   let volumeOk = false;
+  let shuffleOk = false;
+  let repeatOk = false;
+  let likeOk = false;
 
   try {
     song = await pearGet("/api/v1/song");
@@ -419,6 +498,45 @@ async function pollPearOnce() {
         volumeSupported = false;
       }
       pushError(`Pear volume: ${msg || "unknown error"}`);
+    }
+  }
+
+  if (shuffleSupported) {
+    try {
+      shuffleRaw = await pearGet("/api/v1/shuffle");
+      shuffleOk = true;
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.includes("404") || msg.includes("405") || msg.includes("501")) {
+        shuffleSupported = false;
+      }
+      pushError(`Pear shuffle: ${msg || "unknown error"}`);
+    }
+  }
+
+  if (repeatSupported) {
+    try {
+      repeatRaw = await pearGet("/api/v1/repeat-mode");
+      repeatOk = true;
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.includes("404") || msg.includes("405") || msg.includes("501")) {
+        repeatSupported = false;
+      }
+      pushError(`Pear repeat: ${msg || "unknown error"}`);
+    }
+  }
+
+  if (likeSupported) {
+    try {
+      likeRaw = await pearGet("/api/v1/like-state");
+      likeOk = true;
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.includes("404") || msg.includes("405") || msg.includes("501")) {
+        likeSupported = false;
+      }
+      pushError(`Pear like-state: ${msg || "unknown error"}`);
     }
   }
 
@@ -517,6 +635,21 @@ async function pollPearOnce() {
     state.queue = arr.map(normalizeQueueItem).filter(x => x.videoId || x.title);
   }
 
+  if (shuffleOk && shuffleRaw) {
+    const v = parseShuffle(shuffleRaw);
+    if (v != null) state.shuffle = v;
+  }
+
+  if (repeatOk && repeatRaw) {
+    const v = parseRepeat(repeatRaw);
+    if (v) state.repeat = v;
+  }
+
+  if (likeOk && likeRaw) {
+    const v = parseLikeState(likeRaw);
+    if (v) state.likeState = v;
+  }
+
   if (state.now && state.now.videoId) {
     const cur = state.queue.find(q => q.videoId === state.now.videoId);
     if (cur) {
@@ -530,6 +663,20 @@ async function pollPearOnce() {
   if (volumeOk && volumeRaw) {
     const vol = safeVolume(volumeRaw);
     if (vol != null) state.volume = vol;
+  }
+  if (volumeOk || !volumeSupported) {
+    const nowTs = Date.now();
+    if ((nowTs - lastVolLogTs) > 5000) {
+      lastVolLogTs = nowTs;
+      let rawStr = "";
+      try {
+        rawStr = volumeRaw == null ? "(empty)" : (typeof volumeRaw === "string" ? volumeRaw : JSON.stringify(volumeRaw));
+      } catch {
+        rawStr = "(unserializable)";
+      }
+      const vol = safeVolume(volumeRaw);
+      console.log(`[YTM] volume probe: supported=${volumeSupported} ok=${volumeOk} parsed=${vol ?? "null"} raw=${rawStr.slice(0, 200)}`);
+    }
   }
 }
 
@@ -643,7 +790,10 @@ app.get("/sse", (req, res) => {
         volume: state.volume,
         progress: progressLive,
         views: state.now.views || nowQueue?.views || "",
-        likes: state.now.likes || nowQueue?.likes || ""
+        likes: state.now.likes || nowQueue?.likes || "",
+        shuffle: state.shuffle,
+        repeat: state.repeat,
+        likeState: state.likeState
       } : null,
       queue: queueTop,
       toasts: state.toasts,
