@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>YTM Overlay Win98</title>
+
+  <!-- 98.css gives the Win98 look via semantic HTML -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/98.css@0.1.18/dist/98.css" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="layout">
+    <div class="window" id="nowWindow">
+      <div class="title-bar">
+        <div class="title-bar-text">Pear Player</div>
+        <div class="title-bar-controls">
+          <button aria-label="Minimize"></button>
+          <button aria-label="Maximize"></button>
+          <button aria-label="Close"></button>
+        </div>
+      </div>
+
+      <div class="window-body now-body">
+        <div class="now-grid">
+          <div class="thumb-wrap">
+            <img id="nowThumb" alt="" />
+          </div>
+
+          <div class="now-info">
+            <div class="info-box">
+              <div id="nowAddedToast" class="info-toast"></div>
+              <div id="nowTitle" class="now-line now-title"></div>
+              <div id="nowArtist" class="now-line"></div>
+              <div id="nowAlbum" class="now-line"></div>
+              <div id="nowDuration" class="now-line"></div>
+              <div id="nowStatus" class="now-line"></div>
+            </div>
+
+            <div class="progress98">
+              <div class="progress-fill" id="progFill"></div>
+              <div class="progress-knob" id="progKnob"></div>
+            </div>
+
+            <div class="time-row">
+              <span id="tNow">0:00</span>
+              <span id="tDur">0:00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls-row">
+          <button class="media-btn icon-btn" disabled id="btnPrev" aria-label="Previous"><span class="icon prev"></span></button>
+          <button class="media-btn icon-btn play" disabled id="btnPlay" aria-label="Play/Pause"><span class="icon play"></span></button>
+          <button class="media-btn icon-btn" disabled id="btnNext" aria-label="Next"><span class="icon next"></span></button>
+        </div>
+
+        <div class="volume-row" id="volRow">
+          <span class="vol-label">Vol</span>
+          <div class="slider98">
+            <div class="slider-fill" id="volFill"></div>
+            <div class="slider-knob" id="volKnob"></div>
+          </div>
+          <span id="volPct" class="vol-pct">0%</span>
+        </div>
+
+        <div class="status-bar">
+          <div id="statusUser" class="status-panel"></div>
+          <div id="statusLikes" class="status-panel small"></div>
+          <div id="statusViews" class="status-panel small"></div>
+          <div id="statusInfo" class="status-panel"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="window" id="queueWindow">
+      <div class="title-bar">
+        <div class="title-bar-text">Queue</div>
+        <div class="title-bar-controls">
+          <button aria-label="Minimize"></button>
+          <button aria-label="Maximize"></button>
+          <button aria-label="Close"></button>
+        </div>
+      </div>
+
+      <div class="window-body queue-body">
+        <div class="queue-scroll" id="queueScroll">
+          <div id="queueList" class="queue"></div>
+        </div>
+        <div id="queueCurrent" class="queue-current"></div>
+      </div>
+    </div>
+
+    <div id="toastStack"></div>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

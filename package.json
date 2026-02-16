@@ -1,0 +1,13 @@
+{
+  "name": "ytm-overlay-win98",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@streamerbot/client": "^1.12.2",
+    "express": "^4.19.2"
+  }
+}

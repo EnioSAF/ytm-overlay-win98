@@ -1,0 +1,19 @@
+{
+  "server": {
+    "port": 7777
+  },
+  "pear": {
+    "baseUrl": "http://localhost:26538",
+    "clientId": "ytm-overlay-win98",
+    "tokenFile": "./pear-token.json"
+  },
+  "streamerbot": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "password": ""
+  },
+  "overlay": {
+    "queueShowTop": 0,
+    "pollMs": 1000
+  }
+}
