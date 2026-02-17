@@ -23,6 +23,7 @@ const el = {
   statusLikes: document.getElementById("statusLikes"),
   statusViews: document.getElementById("statusViews"),
   statusInfo: document.getElementById("statusInfo"),
+  statusBar: document.querySelector(".status-bar"),
   thumb: document.getElementById("nowThumb"),
   queueCurrent: document.getElementById("queueCurrent"),
   queue: document.getElementById("queueList"),
@@ -113,8 +114,10 @@ function setStatusPanels(items) {
     const item = items[i];
     if (!item) {
       panel.textContent = "";
+      panel.style.display = "none";
       continue;
     }
+    panel.style.display = "";
     if (item.type === "badge") {
       const label = document.createElement("span");
       label.className = "status-label";
@@ -127,6 +130,28 @@ function setStatusPanels(items) {
       panel.appendChild(badge);
     } else {
       panel.textContent = item.text || "";
+    }
+  }
+
+  // If we have an "Added by" badge, drop other panels to show it fully.
+  if (items[0]?.type === "badge" && el.statusBar && panels[0]) {
+    const userPanel = panels[0];
+    const hideOrder = [3, 2, 1];
+    const overflows = () => userPanel.scrollWidth > userPanel.clientWidth + 1;
+
+    let i = 0;
+    while (overflows() && i < hideOrder.length) {
+      const p = panels[hideOrder[i++]];
+      if (p && p.style.display !== "none") p.style.display = "none";
+    }
+
+    if (overflows()) {
+      const label = userPanel.querySelector(".status-label");
+      if (label) label.textContent = "Added:";
+    }
+    if (overflows()) {
+      const label = userPanel.querySelector(".status-label");
+      if (label) label.textContent = "";
     }
   }
 }

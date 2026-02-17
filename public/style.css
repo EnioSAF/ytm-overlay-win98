@@ -409,7 +409,7 @@ html, body {
 }
 
 .status-panel {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   border: 1px inset #fff;
   background: #d6d6d6;
@@ -420,6 +420,11 @@ html, body {
   text-overflow: ellipsis;
 }
 
+#statusUser {
+  flex: 0 1 auto;
+  max-width: none;
+}
+
 .status-label {
   margin-right: 4px;
   color: #000080;
@@ -427,9 +432,14 @@ html, body {
 }
 
 .status-panel.small {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 90px;
+  max-width: 90px;
+  min-width: 90px;
   text-align: center;
+}
+
+#statusInfo {
+  flex: 1 1 auto;
 }
 
 .status-badge {
