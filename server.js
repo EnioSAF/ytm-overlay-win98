@@ -9,6 +9,10 @@ const __dirname = path.dirname(__filename);
 
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf-8"));
 const showErrors = cfg?.overlay?.showErrors === true;
+const pollMs = Math.max(250, Number(cfg?.overlay?.pollMs ?? 1000));
+const volumePollMsRaw = Number(cfg?.overlay?.volumePollMs ?? 5000);
+const volumePollMs = volumePollMsRaw > 0 ? Math.max(pollMs, volumePollMsRaw) : 0;
+const debugVolume = cfg?.overlay?.debugVolume === true;
 
 /** -----------------------------
  *  Pear API (minimal client)
@@ -112,6 +116,7 @@ let shuffleSupported = true;
 let repeatSupported = true;
 let likeSupported = true;
 let lastVolLogTs = 0;
+let lastVolumePoll = 0;
 
 function pushToast(payload) {
   const item = (typeof payload === "string") ? { text: payload } : { ...payload };
@@ -488,7 +493,13 @@ async function pollPearOnce() {
     pushError(`Pear queue: ${e.message}`);
   }
 
-  if (volumeSupported) {
+  const nowTs = Date.now();
+  const shouldPollVolume =
+    volumeSupported
+    && volumePollMs > 0
+    && (nowTs - lastVolumePoll >= volumePollMs);
+  if (shouldPollVolume) {
+    lastVolumePoll = nowTs;
     try {
       volumeRaw = await pearGet("/api/v1/volume");
       volumeOk = true;
@@ -664,10 +675,10 @@ async function pollPearOnce() {
     const vol = safeVolume(volumeRaw);
     if (vol != null) state.volume = vol;
   }
-  if (volumeOk || !volumeSupported) {
-    const nowTs = Date.now();
-    if ((nowTs - lastVolLogTs) > 5000) {
-      lastVolLogTs = nowTs;
+  if (debugVolume && (volumeOk || !volumeSupported)) {
+    const nowTs2 = Date.now();
+    if ((nowTs2 - lastVolLogTs) > 5000) {
+      lastVolLogTs = nowTs2;
       let rawStr = "";
       try {
         rawStr = volumeRaw == null ? "(empty)" : (typeof volumeRaw === "string" ? volumeRaw : JSON.stringify(volumeRaw));
@@ -680,7 +691,7 @@ async function pollPearOnce() {
   }
 }
 
-setInterval(pollPearOnce, cfg.overlay.pollMs);
+setInterval(pollPearOnce, pollMs);
 pollPearOnce();
 
 /** -----------------------------

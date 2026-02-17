@@ -14,6 +14,8 @@
   },
   "overlay": {
     "queueShowTop": 0,
-    "pollMs": 1000
+    "pollMs": 2000,
+    "volumePollMs": 0,
+    "debugVolume": false
   }
 }
