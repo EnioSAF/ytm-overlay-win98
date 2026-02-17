@@ -16,6 +16,8 @@
     "queueShowTop": 0,
     "pollMs": 2000,
     "volumePollMs": 0,
-    "debugVolume": false
+    "debugVolume": false,
+    "pearWs": true,
+    "debugPearWs": false
   }
 }

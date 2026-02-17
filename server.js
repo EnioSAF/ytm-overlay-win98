@@ -3,6 +3,7 @@ import path from "path";
 import express from "express";
 import { fileURLToPath } from "url";
 import { StreamerbotClient } from "@streamerbot/client";
+import WebSocket from "ws";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +14,8 @@ const pollMs = Math.max(250, Number(cfg?.overlay?.pollMs ?? 1000));
 const volumePollMsRaw = Number(cfg?.overlay?.volumePollMs ?? 5000);
 const volumePollMs = volumePollMsRaw > 0 ? Math.max(pollMs, volumePollMsRaw) : 0;
 const debugVolume = cfg?.overlay?.debugVolume === true;
+const pearWsEnabled = cfg?.overlay?.pearWs !== false;
+const debugPearWs = cfg?.overlay?.debugPearWs === true;
 
 /** -----------------------------
  *  Pear API (minimal client)
@@ -117,6 +120,76 @@ let repeatSupported = true;
 let likeSupported = true;
 let lastVolLogTs = 0;
 let lastVolumePoll = 0;
+let pearWs = null;
+let pearWsRetry = 0;
+let pearWsConnected = false;
+
+function pearWsUrl() {
+  const base = String(cfg.pear.baseUrl || "http://localhost:26538");
+  return base.replace(/^http/i, "ws") + "/api/v1/ws";
+}
+
+function extractVolumeFromWs(msg) {
+  return (
+    safeVolume(msg)
+    ?? safeVolume(msg?.data)
+    ?? safeVolume(msg?.payload)
+    ?? safeVolume(msg?.args)
+    ?? safeVolume(msg?.event)
+    ?? safeVolume(msg?.eventData)
+  );
+}
+
+async function connectPearWs() {
+  if (!pearWsEnabled) return;
+  try {
+    const token = await pearAuthIfNeeded();
+    const url = pearWsUrl();
+    if (debugPearWs) console.log(`[YTM] pear ws connect: ${url}`);
+    pearWs = new WebSocket(url, { headers: { Authorization: `Bearer ${token}` } });
+  } catch (e) {
+    if (debugPearWs) console.warn(`[YTM] pear ws auth error: ${e?.message || e}`);
+    schedulePearWsReconnect();
+    return;
+  }
+
+  pearWs.on("open", () => {
+    pearWsConnected = true;
+    pearWsRetry = 0;
+    if (debugPearWs) console.log("[YTM] pear ws connected");
+  });
+
+  pearWs.on("message", (data) => {
+    let msg = null;
+    try {
+      const txt = data?.toString?.() ?? String(data || "");
+      msg = txt ? JSON.parse(txt) : null;
+    } catch {
+      msg = null;
+    }
+    if (!msg) return;
+
+    const vol = extractVolumeFromWs(msg);
+    if (vol != null) state.volume = vol;
+  });
+
+  pearWs.on("close", () => {
+    pearWsConnected = false;
+    if (debugPearWs) console.log("[YTM] pear ws closed");
+    schedulePearWsReconnect();
+  });
+
+  pearWs.on("error", (err) => {
+    pearWsConnected = false;
+    if (debugPearWs) console.warn(`[YTM] pear ws error: ${err?.message || err}`);
+  });
+}
+
+function schedulePearWsReconnect() {
+  if (!pearWsEnabled) return;
+  const delay = Math.min(30000, 1000 * Math.pow(2, pearWsRetry++));
+  setTimeout(connectPearWs, delay);
+}
 
 function pushToast(payload) {
   const item = (typeof payload === "string") ? { text: payload } : { ...payload };
@@ -693,6 +766,7 @@ async function pollPearOnce() {
 
 setInterval(pollPearOnce, pollMs);
 pollPearOnce();
+connectPearWs();
 
 /** -----------------------------
  *  Streamer.bot WS
